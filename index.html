@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <base href="./">
+  <title>Enhanced Memory Game - WebSim</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      font-family: Arial, sans-serif;
+      line-height: 1.6;
+      margin: 0;
+      padding: 20px;
+      background-color: #f0f4f8;
+      color: #333;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: #fff;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #2c3e50;
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .game-board {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .card {
+      aspect-ratio: 1;
+      background-color: #3498db;
+      color: #fff;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 24px;
+      cursor: pointer;
+      user-select: none;
+      transition: transform 0.3s ease, background-color 0.3s ease;
+      border-radius: 5px;
+      overflow: hidden;
+      perspective: 1000px;
+    }
+    .card:hover {
+      transform: scale(1.05);
+      box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+    }
+    .card.flipped {
+      transform: rotateY(180deg);
+      background-color: #f0f4f8;
+    }
+    .card-inner {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      text-align: center;
+      transition: transform 0.6s;
+      transform-style: preserve-3d;
+    }
+    .card-front, .card-back {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      backface-visibility: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    .card-front { background-color: #3498db; }
+    .card-back {
+      background-color: #f0f4f8;
+      color: #333;
+      transform: rotateY(180deg);
+    }
+    .controls, .music-control, .game-type-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    .controls { justify-content: space-between; }
+    .game-type-buttons { justify-content: center; }
+    button {
+      padding: 10px 20px;
+      font-size: 16px;
+      background-color: #3498db;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+    }
+    button:hover { background-color: #2980b9; }
+    button:disabled {
+      background-color: #bdc3c7;
+      cursor: not-allowed;
+    }
+    .timer {
+      font-size: 18px;
+      font-weight: bold;
+      color: #2c3e50;
+    }
+    .volume-control input[type="range"] {
+      width: 100px;
+      cursor: pointer;
+    }
+    .win-message {
+      text-align: center;
+      font-size: 24px;
+      color: #27ae60;
+      margin-top: 20px;
+      font-weight: bold;
+    }
+    .emoji-card {
+      font-size: 48px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      width: 100%;
+      height: 100%;
+    }
+    .color-block { width: 100%; height: 100%; }
+    .bg-red { background-color: #e74c3c; }
+    .bg-blue { background-color: #3498db; }
+    .bg-green { background-color: #2ecc71; }
+    .bg-yellow { background-color: #f1c40f; }
+    .bg-purple { background-color: #9b59b6; }
+    .bg-pink { background-color: #e91e63; }
+    .bg-orange { background-color: #e67e22; }
+    .bg-gray { background-color: #95a5a6; }
+    .music-control button {
+      font-size: 14px;
+      padding: 5px 10px;
+    }
+    .audio-warning {
+      color: #e74c3c;
+      font-style: italic;
+      margin-top: 15px;
+      font-size: 0.9em;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Enhanced Memory Game</h1>
+    <main id="app">
+      <div class="game-type-buttons">
+        <button @click="changeGameType('emoji')" aria-label="Select Emoji Game Type">Emoji</button>
+        <button @click="changeGameType('number')" aria-label="Select Number Game Type">Number</button>
+        <button @click="changeGameType('letter')" aria-label="Select Letter Game Type">Letter</button>
+        <button @click="changeGameType('color')" aria-label="Select Color Game Type">Color</button>
+      </div>
+      <div class="controls">
+        <button @click="restartGame" aria-label="Restart Game">Restart</button>
+        <div class="timer">Time: {{ formatTime(time) }}</div>
+        <div class="volume-control">
+          <label for="volume">Volume:</label>
+          <input type="range" id="volume" min="0" max="1" step="0.05" v-model="volume">
+        </div>
+      </div>
+      <div class="music-control">
+        <button @click="toggleMusic" :disabled="audioError" aria-label="Toggle Music">
+          {{ isPlaying ? 'Pause Music' : 'Play Music' }}
+        </button>
+        <span>Now Playing: {{ audioError ? 'Audio Unavailable' : currentSong }}</span>
+      </div>
+      <div v-if="!audioContextStarted" class="audio-warning">
+        Note: Audio requires you to click 'Play Music' or interact with the game due to browser restrictions.
+      </div>
+      <div v-if="audioError" class="audio-warning">
+        There was an error loading the music. Please check your connection or try again later.
+      </div>
+      <section class="game-board">
+        <div v-for="(card, index) in cards" :key="index" class="card"
+             :class="{ 'flipped': isCardVisible(index) }" @click="flipCard(index)">
+          <template v-if="isCardVisible(index)">
+            <div v-if="gameType === 'emoji'" class="emoji-card">{{ card.content }}</div>
+            <span v-else-if="gameType === 'number' || gameType === 'letter'">{{ card.content }}</span>
+            <div v-else-if="gameType === 'color'" class="color-block" :class="card.content"></div>
+          </template>
+        </div>
+      </section>
+      <div v-if="gameWon" class="win-message">
+        Congratulations! You won in {{ formatTime(time) }}!
+      </div>
+    </main>
+  </div>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <script>
+    const { createApp, ref, computed, watch, onMounted, onUnmounted } = Vue;
+    
+    const gameTypes = {
+      emoji: ['🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼'],
+      number: [1, 2, 3, 4, 5, 6, 7, 8],
+      letter: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'],
+      color: ['bg-red', 'bg-blue', 'bg-green', 'bg-yellow', 'bg-purple', 'bg-pink', 'bg-orange', 'bg-gray']
+    };
+
+    // Updated song reference using a relative path for MemoryLane.mp3
+    const songs = [
+      { title: "MemoryLane", url: "./MemoryLane.mp3" }
+    ];
+
+    createApp({
+      setup() {
+        const cards = ref([]);
+        const flipped = ref([]);
+        const solved = ref([]);
+        const disabled = ref(false);
+        const gameType = ref('emoji');
+        const gameWon = ref(false);
+        const time = ref(0);
+        const timerInterval = ref(null);
+        const isTimerActive = ref(false);
+        const volume = ref(0.5);
+        const isPlaying = ref(false);
+        const currentSongIndex = ref(0);
+        const audio = ref(null);
+        const audioContextStarted = ref(false);
+        const audioError = ref(false);
+        const currentSong = computed(() => songs[currentSongIndex.value]?.title || 'No Song');
+
+        const isCardVisible = (index) => {
+          return flipped.value.includes(index) || solved.value.includes(cards.value[index]?.id);
+        };
+
+        const initializeCards = () => {
+          const baseContent = gameTypes[gameType.value];
+          if (!baseContent) {
+            console.error("Invalid game type selected:", gameType.value);
+            return;
+          }
+          const baseCards = baseContent.map((content, index) => ({ id: index, content }));
+          cards.value = [...baseCards, ...baseCards]
+            .sort(() => Math.random() - 0.5)
+            .map((card, index) => ({ ...card, index }));
+        };
+
+        const flipCard = (index) => {
+          if (disabled.value || isCardVisible(index) || flipped.value.length >= 2) return;
+          if (!audioContextStarted.value) {
+            toggleMusic();
+          }
+          if (!isTimerActive.value && !gameWon.value) startTimer();
+          flipped.value.push(index);
+          if (flipped.value.length === 2) checkMatch();
+        };
+
+        const checkMatch = () => {
+          disabled.value = true;
+          const [index1, index2] = flipped.value;
+          const card1 = cards.value[index1];
+          const card2 = cards.value[index2];
+          if (card1.id === card2.id) {
+            solved.value.push(card1.id);
+            flipped.value = [];
+            disabled.value = false;
+            if (solved.value.length === gameTypes[gameType.value].length) {
+              gameWon.value = true;
+              stopTimer();
+              // Stop the music when the game is over.
+              if (audio.value) {
+                audio.value.pause();
+                isPlaying.value = false;
+                console.log("Game over: Music stopped.");
+              }
+            }
+          } else {
+            setTimeout(() => {
+              flipped.value = [];
+              disabled.value = false;
+            }, 1000);
+          }
+        };
+
+        const startTimer = () => {
+          if (isTimerActive.value) return;
+          isTimerActive.value = true;
+          time.value = 0;
+          timerInterval.value = setInterval(() => { time.value++; }, 1000);
+        };
+
+        const stopTimer = () => {
+          isTimerActive.value = false;
+          clearInterval(timerInterval.value);
+          timerInterval.value = null;
+        };
+
+        const formatTime = (totalSeconds) => {
+          const minutes = Math.floor(totalSeconds / 60);
+          const seconds = totalSeconds % 60;
+          return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        };
+
+        const restartGame = () => {
+          stopTimer();
+          time.value = 0;
+          flipped.value = [];
+          solved.value = [];
+          disabled.value = false;
+          gameWon.value = false;
+          initializeCards();
+        };
+
+        const changeGameType = (type) => {
+          if (gameType.value === type) return;
+          gameType.value = type;
+          restartGame();
+        };
+
+        const initializeAudio = () => {
+          audioError.value = false;
+          if (audio.value) {
+            audio.value.pause();
+            audio.value.removeEventListener('ended', playNextSong);
+            audio.value.removeEventListener('error', handleAudioError);
+            audio.value.src = '';
+            audio.value = null;
+          }
+          if (!songs || songs.length === 0 || !songs[currentSongIndex.value]) {
+            console.error("Songs list is invalid or empty.");
+            audioError.value = true;
+            return;
+          }
+          try {
+            const songUrl = songs[currentSongIndex.value].url;
+            if (!songUrl) throw new Error("Song URL is missing.");
+            audio.value = new Audio(songUrl);
+            audio.value.volume = volume.value;
+            audio.value.addEventListener('ended', playNextSong);
+            audio.value.addEventListener('error', handleAudioError);
+            console.log("Audio initialized for:", songs[currentSongIndex.value].title);
+          } catch (error) {
+            console.error("Error creating Audio object:", error);
+            handleAudioError();
+          }
+        };
+
+        const handleAudioError = (event) => {
+          console.error("Audio Error:", event || "Unknown error during setup or playback.");
+          if (audio.value) audio.value.pause();
+          isPlaying.value = false;
+          audioError.value = true;
+        };
+
+        const toggleMusic = async () => {
+          if (audioError.value) {
+            console.warn("Cannot play music due to previous audio error.");
+            return;
+          }
+          if (!audio.value) {
+            initializeAudio();
+            if (audioError.value) return;
+          }
+          audioContextStarted.value = true;
+          if (isPlaying.value) {
+            audio.value.pause();
+            isPlaying.value = false;
+            console.log("Audio paused");
+          } else {
+            try {
+              if (!audio.value) {
+                console.error("Audio object is not available to play.");
+                initializeAudio();
+                if (audioError.value || !audio.value) return;
+              }
+              await audio.value.play();
+              isPlaying.value = true;
+              console.log("Audio playing");
+            } catch (error) {
+              console.error("Error playing audio:", error);
+              isPlaying.value = false;
+              handleAudioError(error);
+            }
+          }
+        };
+
+        const playNextSong = () => {
+          console.log("Song ended, playing next.");
+          currentSongIndex.value = (currentSongIndex.value + 1) % songs.length;
+          initializeAudio();
+          if (audioError.value) return;
+          if (isPlaying.value && audio.value) {
+            setTimeout(async () => {
+              try {
+                await audio.value.play();
+                console.log("Autoplaying next song.");
+              } catch (error) {
+                console.error("Error autoplaying next song:", error);
+                isPlaying.value = false;
+                handleAudioError(error);
+              }
+            }, 100);
+          } else {
+            isPlaying.value = false;
+          }
+        };
+
+        watch(volume, (newVolume) => {
+          if (audio.value) {
+            audio.value.volume = parseFloat(newVolume);
+          }
+        });
+
+        onMounted(() => {
+          initializeCards();
+          initializeAudio();
+        });
+
+        onUnmounted(() => {
+          stopTimer();
+          if (audio.value) {
+            audio.value.pause();
+            audio.value.removeEventListener('ended', playNextSong);
+            audio.value.removeEventListener('error', handleAudioError);
+            audio.value = null;
+          }
+          console.log("Memory Game component unmounted, cleaned up resources.");
+        });
+
+        return {
+          cards,
+          flipped,
+          solved,
+          gameType,
+          time,
+          gameWon,
+          volume,
+          isPlaying,
+          currentSong,
+          audioContextStarted,
+          audioError,
+          isCardVisible,
+          flipCard,
+          restartGame,
+          changeGameType,
+          formatTime,
+          toggleMusic
+        };
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>
